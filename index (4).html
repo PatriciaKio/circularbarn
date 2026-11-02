@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="House of No Waste: a WebXR walkthrough of a barn converted to two homes, showing Keep, Reclaim, Unbuild, Loop and City-scale circular design.">
+<title>Circular Barn VR</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Public+Sans:wght@400;600&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe-v1.6.0.min.js"></script>
+<style>
+/* Layout: full-bleed 3D scene; HUD floats over it as two dark glass panels (stop card + controls). Single dark look on purpose. */
+:root {
+  color-scheme: dark;
+  --ink: #f3efe4;
+  --ink-soft: #c6cdbf;
+  --glass: rgba(16, 32, 25, 0.86);
+  --line: rgba(243, 239, 228, 0.16);
+  --amber: #e3a62f;
+  --keep: #2e9e62;
+  --reclaim: #e3a62f;
+  --new: #3e7fd6;
+  --display: "Bricolage Grotesque", "Trebuchet MS", sans-serif;
+  --body: "Public Sans", Arial, sans-serif;
+}
+html, body { height: 100%; margin: 0; }
+[hidden] { display: none !important; }
+body { background: #14231c; color: var(--ink); font-family: var(--body); overflow: hidden; }
+a-scene { position: fixed; inset: 0; }
+.hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; font-size: 15px; line-height: 1.5; }
+.card, .bar, .brand { pointer-events: auto; background: var(--glass); border: 1px solid var(--line); border-radius: 14px; backdrop-filter: blur(6px); }
+.brand { position: absolute; top: calc(12px + env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); padding: 8px 14px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--amber); font-weight: 600; }
+.card { position: absolute; top: calc(56px + env(safe-area-inset-top, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); width: min(380px, calc(100% - 32px)); max-height: calc(100% - 200px); overflow-y: auto; padding: 18px 20px; }
+.eyebrow { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--amber); font-weight: 600; }
+.card h1 { font-family: var(--display); font-weight: 800; font-size: 24px; line-height: 1.15; margin: 6px 0 10px; text-wrap: balance; }
+.card p { margin: 0 0 10px; color: var(--ink-soft); }
+.ask { border-top: 1px solid var(--line); padding-top: 10px; color: var(--ink) !important; }
+.ask b { color: var(--amber); font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; padding: 3px 10px; border-radius: 99px; border: 1px solid var(--line); }
+.chip i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.bar { position: absolute; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); left: max(16px, env(safe-area-inset-left, 0px)); right: calc(max(16px, env(safe-area-inset-right, 0px)) + 96px); padding: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.bar button { font: 600 14px var(--body); color: var(--ink); background: transparent; border: 1px solid var(--line); border-radius: 9px; padding: 8px 12px; cursor: pointer; }
+.bar button:hover { border-color: var(--amber); }
+.bar button:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+.bar button[aria-pressed="true"] { background: var(--amber); color: #1b1a12; border-color: var(--amber); }
+.bar .sep { width: 1px; align-self: stretch; background: var(--line); }
+.hint { font-size: 12px; color: var(--ink-soft); flex-basis: 100%; padding: 0 4px; }
+@media (max-width: 640px) {
+  .card { top: auto; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); max-height: 38vh; }
+  .brand { display: none; }
+  .bar { right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(76px + env(safe-area-inset-bottom, 0px)); }
+  .bar button { padding: 6px 9px; font-size: 13px; }
+}
+</style>
+
+<script>
+/* ---------- components (registered before the scene) ---------- */
+const FLOW = { keep: '#2e9e62', reclaim: '#e3a62f', new: '#3e7fd6' };
+const STATE = { exploded: false, flow: false };
+
+function wrapLines(ctx, text, maxW) {
+  const out = [];
+  String(text).split('\n').forEach(par => {
+    let line = '';
+    par.split(' ').forEach(w => {
+      const test = line ? line + ' ' + w : w;
+      if (ctx.measureText(test).width > maxW && line) { out.push(line); line = w; } else line = test;
+    });
+    out.push(line);
+  });
+  return out;
+}
+
+AFRAME.registerComponent('label-panel', {
+  schema: {
+    w: { default: 1 }, h: { default: 0.5 }, eyebrow: { default: '' }, title: { default: '' }, body: { default: '' },
+    ask: { default: '' }, bg: { default: '#14231c' }, fg: { default: '#f3efe4' }, accent: { default: '#e3a62f' },
+    scale: { default: 1 }, center: { default: false }
+  },
+  update() {
+    const d = this.data, ppm = 420, c = document.createElement('canvas');
+    c.width = Math.round(d.w * ppm); c.height = Math.round(d.h * ppm);
+    const x = c.getContext('2d'), pad = 0.07 * ppm, r = 0.05 * ppm, W = c.width, H = c.height;
+    x.fillStyle = d.bg; x.beginPath();
+    x.moveTo(r, 0); x.arcTo(W, 0, W, H, r); x.arcTo(W, H, 0, H, r); x.arcTo(0, H, 0, 0, r); x.arcTo(0, 0, W, 0, r); x.fill();
+    x.textBaseline = 'top'; x.textAlign = d.center ? 'center' : 'left';
+    const tx = d.center ? W / 2 : pad, maxW = W - pad * 2, s = d.scale * ppm;
+    let y = pad;
+    if (d.center && !d.eyebrow && !d.body) y = (H - 0.1 * s * 1.2) / 2;
+    if (d.eyebrow) { x.fillStyle = d.accent; x.font = `600 ${0.055 * s}px "Public Sans", Arial, sans-serif`; x.fillText(d.eyebrow.toUpperCase(), tx, y); y += 0.085 * s; }
+    if (d.title) {
+      x.fillStyle = d.fg; x.font = `800 ${0.1 * s}px "Bricolage Grotesque", "Trebuchet MS", sans-serif`;
+      wrapLines(x, d.title, maxW).forEach(l => { x.fillText(l, tx, y); y += 0.115 * s; }); y += 0.03 * s;
+    }
+    if (d.body) {
+      x.fillStyle = '#c6cdbf'; x.font = `400 ${0.058 * s}px "Public Sans", Arial, sans-serif`;
+      wrapLines(x, d.body, maxW).forEach(l => { x.fillText(l, tx, y); y += 0.08 * s; }); y += 0.03 * s;
+    }
+    if (d.ask) {
+      x.fillStyle = d.accent; x.font = `600 ${0.058 * s}px "Public Sans", Arial, sans-serif`;
+      wrapLines(x, 'Ask about your project: ' + d.ask, maxW).forEach(l => { x.fillText(l, tx, y); y += 0.08 * s; });
+    }
+    const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+    if (this.mesh) { this.mesh.material.map.dispose(); this.mesh.material.map = tex; this.mesh.material.needsUpdate = true; this.mesh.geometry.dispose(); this.mesh.geometry = new THREE.PlaneGeometry(d.w, d.h); }
+    else {
+      this.mesh = new THREE.Mesh(new THREE.PlaneGeometry(d.w, d.h), new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide }));
+      this.el.setObject3D('mesh', this.mesh);
+    }
+  }
+});
+
+AFRAME.registerComponent('flow-path', {
+  schema: { points: { default: '' }, color: { default: '#4fb3e8' }, count: { default: 8 }, speed: { default: 2 }, size: { default: 0.12 } },
+  init() {
+    const d = this.data;
+    const pts = d.points.split(',').map(s => { const a = s.trim().split(/\s+/).map(Number); return new THREE.Vector3(a[0], a[1], a[2]); });
+    this.curve = new THREE.CatmullRomCurve3(pts); this.len = this.curve.getLength();
+    const grp = new THREE.Group(), g = new THREE.SphereGeometry(d.size, 12, 8), m = new THREE.MeshBasicMaterial({ color: d.color });
+    this.dots = [];
+    for (let i = 0; i < d.count; i++) { const mesh = new THREE.Mesh(g, m); grp.add(mesh); this.dots.push(mesh); }
+    grp.add(new THREE.Mesh(new THREE.TubeGeometry(this.curve, 80, d.size * 0.22, 6, false), new THREE.MeshBasicMaterial({ color: d.color, transparent: true, opacity: 0.35 })));
+    this.el.setObject3D('flow', grp); this.t = 0;
+    this.slow = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.3 : 1;
+  },
+  tick(t, dt) {
+    if (!dt) return;
+    this.t += (dt / 1000) * this.data.speed * this.slow / this.len;
+    const n = this.dots.length;
+    this.dots.forEach((m, i) => m.position.copy(this.curve.getPointAt(((this.t + i / n) % 1 + 1) % 1)));
+  }
+});
+
+AFRAME.registerComponent('explode', {
+  schema: { type: 'vec3' },
+  init() { this.k = 0; this.base = null; },
+  tick(t, dt) {
+    if (!this.base) this.base = this.el.object3D.position.clone();
+    const target = STATE.exploded ? 1 : 0;
+    this.k += (target - this.k) * Math.min(1, (dt / 1000) * 2.5);
+    const o = this.data;
+    this.el.object3D.position.set(this.base.x + o.x * this.k, this.base.y + o.y * this.k, this.base.z + o.z * this.k);
+  }
+});
+</script>
+
+</head>
+<body>
+<a-scene renderer="antialias: true; colorManagement: true" cursor="rayOrigin: mouse" raycaster="objects: .clickable; far: 120"
+  fog="type: linear; color: #cfe3e6; near: 80; far: 260" loading-screen="dotsColor: #e3a62f; backgroundColor: #14231c"
+  device-orientation-permission-ui="enabled: false">
+  <a-sky color="#cfe3e6"></a-sky>
+  <a-entity light="type: ambient; intensity: 0.75; color: #ffffff"></a-entity>
+  <a-entity light="type: directional; intensity: 0.9; color: #fff3dc" position="-4 10 6"></a-entity>
+  <a-entity light="type: hemisphere; color: #dfefff; groundColor: #6b7a4a; intensity: 0.4"></a-entity>
+
+  <a-entity id="world"></a-entity>
+  <a-entity id="cityflows" visible="false"></a-entity>
+
+  <a-entity id="rig" position="0 0 24">
+    <a-entity id="cam" camera look-controls="pointerLockEnabled: false" wasd-controls="acceleration: 40" position="0 1.6 0"></a-entity>
+    <a-entity laser-controls="hand: right; model: false" raycaster="objects: .clickable; far: 120; lineColor: #e3a62f"></a-entity>
+    <a-entity laser-controls="hand: left; model: false" raycaster="objects: .clickable; far: 120; lineColor: #e3a62f"></a-entity>
+    <a-entity id="vrui" visible="false">
+      <a-entity id="vrpanel" position="-1.25 1.55 -1.9" rotation="0 28 0" label-panel="w: 1.5; h: 1.25; scale: 0.9"></a-entity>
+      <a-entity id="vrmenu" position="0 0.95 -0.75" rotation="-40 0 0"></a-entity>
+    </a-entity>
+  </a-entity>
+</a-scene>
+
+<div class="hud">
+  <div class="brand">House of No Waste · VR walkthrough</div>
+  <section class="card" id="card" aria-live="polite">
+    <div class="eyebrow" id="c-eyebrow"></div>
+    <h1 id="c-title"></h1>
+    <p id="c-body"></p>
+    <div class="legend" id="c-legend" hidden>
+      <span class="chip"><i style="background: var(--keep)"></i>Stays (keep)</span>
+      <span class="chip"><i style="background: var(--reclaim)"></i>Reclaimed</span>
+      <span class="chip"><i style="background: var(--new)"></i>New</span>
+    </div>
+    <p class="ask" id="c-ask"></p>
+  </section>
+  <nav class="bar" aria-label="Tour controls">
+    <button data-stop="0" id="b0">Start</button>
+    <button data-stop="1" id="b1">1 Keep</button>
+    <button data-stop="2" id="b2">2 Reclaim</button>
+    <button data-stop="3" id="b3">3 Unbuild</button>
+    <button data-stop="4" id="b4">4 Loop</button>
+    <button data-stop="5" id="b5">5 City</button>
+    <span class="sep"></span>
+    <button id="bflow" aria-pressed="false">Flow colors</button>
+    <button id="bexp" aria-pressed="false">Explode</button>
+    <span class="hint">Drag to look · W A S D to walk · click a numbered marker · headset or phone: use the VR button. Illustrative model, not a survey of the real building.</span>
+  </nav>
+</div>
+
+<script>
+const scene = document.querySelector('a-scene');
+const world = document.getElementById('world');
+const rig = document.getElementById('rig');
+const cam = document.getElementById('cam');
+
+function add(parent, tag, attrs) {
+  const el = document.createElement(tag);
+  for (const k in attrs) {
+    if (k === 'flow') { el.dataset.flow = attrs.flow; continue; }
+    el.setAttribute(k, attrs[k]);
+  }
+  if (attrs.flow) el.dataset.base = attrs.color;
+  parent.appendChild(el);
+  return el;
+}
+function box(p, o) {
+  const a = { position: `${o.x} ${o.y} ${o.z}`, width: o.w, height: o.h, depth: o.d, color: o.color };
+  if (o.rot) a.rotation = o.rot;
+  if (o.flow) a.flow = o.flow;
+  if (o.explode) a.explode = o.explode;
+  if (o.opacity) { a.opacity = o.opacity; a.transparent = true; }
+  return add(p, 'a-box', a);
+}
+let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+
+/* ---------- landscape ---------- */
+add(world, 'a-plane', { rotation: '-90 0 0', width: 500, height: 500, color: '#8fa86a' });
+[[-70, -60, 60, 40, '#b9b56a'], [70, -70, 50, 50, '#a3b862'], [-80, 60, 50, 40, '#c6b874'], [80, 70, 60, 40, '#9cb05e']].forEach(f =>
+  add(world, 'a-plane', { rotation: '-90 0 0', position: `${f[0]} 0.01 ${f[1]}`, width: f[2], height: f[3], color: f[4] }));
+add(world, 'a-plane', { rotation: '-90 0 0', position: '0 0.02 9', width: 36, height: 18, color: '#cdbf9c' });
+add(world, 'a-plane', { rotation: '-90 0 0', position: '0 0.02 45', width: 5, height: 54, color: '#cdbf9c' });
+add(world, 'a-plane', { rotation: '-90 0 0', position: '0 0.03 0', width: 23, height: 7.5, color: '#9b8f7a' });
+
+/* ---------- the barn (x: -12..12, z: -4..4) ---------- */
+const BRICK = '#b0674a', ROOF = '#a9472f', TIMBER = '#8b5a33';
+const openings = [-10, -6, -2, 2, 6, 10];
+let prev = -12;
+openings.forEach(cx => { const a = cx - 1.2; box(world, { x: (prev + a) / 2, y: 1.8, z: 4, w: a - prev, h: 3.6, d: 0.5, color: BRICK, flow: 'keep' }); prev = cx + 1.2; });
+box(world, { x: (prev + 12) / 2, y: 1.8, z: 4, w: 12 - prev, h: 3.6, d: 0.5, color: BRICK, flow: 'keep' });
+box(world, { x: 0, y: 4.3, z: 4, w: 24, h: 1.4, d: 0.5, color: BRICK, flow: 'keep' });
+box(world, { x: 0, y: 2.5, z: -4, w: 24, h: 5, d: 0.5, color: BRICK, flow: 'keep' });
+[-11.75, 11.75].forEach(x => box(world, { x, y: 2.5, z: 0, w: 0.5, h: 5, d: 7.5, color: BRICK, flow: 'keep' }));
+[-12.01, 12.01].forEach(x => add(world, 'a-triangle', { position: `${x} 0 0`, rotation: '0 90 0', 'vertex-a': '0 7 0', 'vertex-b': '-4.2 5 0', 'vertex-c': '4.2 5 0', color: BRICK, side: 'double', flow: 'keep' }));
+// glazing in the old arcade (new, comes off)
+openings.forEach(cx => box(world, { x: cx, y: 1.8, z: 4, w: 2.4, h: 3.6, d: 0.08, color: '#9cc3e6', opacity: 0.5, flow: 'new', explode: '0 0 3.2' }));
+// reclaimed timber trusses
+openings.forEach(cx => {
+  box(world, { x: cx, y: 5.1, z: 0, w: 0.25, h: 0.3, d: 8.2, color: TIMBER, flow: 'reclaim' });
+  box(world, { x: cx, y: 6.05, z: 0, w: 0.22, h: 1.8, d: 0.22, color: TIMBER, flow: 'reclaim' });
+});
+// roof: reclaimed tiles
+const TH = 24.94, rad = TH * Math.PI / 180, ny = Math.cos(rad), nz = Math.sin(rad);
+box(world, { x: 0, y: 6.09, z: 2.19, w: 25, h: 0.2, d: 4.95, rot: `${TH} 0 0`, color: ROOF, flow: 'reclaim' });
+box(world, { x: 0, y: 6.09, z: -2.19, w: 25, h: 0.2, d: 4.95, rot: `${-TH} 0 0`, color: ROOF, flow: 'reclaim' });
+// solar (new, unbolts)
+[-9, -4, 4, 9].forEach(x => box(world, { x, y: 6.09 + ny * 0.22, z: 2.19 + nz * 0.22, w: 4.2, h: 0.08, d: 3.2, rot: `${TH} 0 0`, color: '#1f2d4a', flow: 'new', explode: `0 ${(ny * 2.6).toFixed(2)} ${(nz * 2.6).toFixed(2)}` }));
+// new insulation linings and party wall
+box(world, { x: 0, y: 2.4, z: -3.6, w: 22.8, h: 4.6, d: 0.14, color: '#e8e0cc', flow: 'new', explode: '0 0 2.4' });
+box(world, { x: -11.35, y: 2.4, z: 0, w: 0.14, h: 4.6, d: 7, color: '#e8e0cc', flow: 'new', explode: '2.4 0 0' });
+box(world, { x: 11.35, y: 2.4, z: 0, w: 0.14, h: 4.6, d: 7, color: '#e8e0cc', flow: 'new', explode: '-2.4 0 0' });
+box(world, { x: 0, y: 2.5, z: 0, w: 0.3, h: 5, d: 7.2, color: '#c9a97a', flow: 'new', explode: '0 8 0' });
+// gutter, downpipe, tank
+box(world, { x: 0.6, y: 5.0, z: 4.45, w: 25, h: 0.18, d: 0.25, color: '#5c6670', flow: 'new' });
+add(world, 'a-cylinder', { position: '12.9 2.5 4.45', radius: 0.09, height: 5, color: '#5c6670', flow: 'new' });
+add(world, 'a-cylinder', { position: '14.5 1.5 6.5', radius: 1.2, height: 3, color: '#6e7f86', flow: 'new' });
+
+/* ---------- yard: salvage pile, gardens, compost ---------- */
+for (let i = 0; i < 3; i++) for (let j = 0; j < 2; j++) box(world, { x: -4.6 + i * 1.3, y: 0.35 + j * 0.62, z: 8, w: 1.1, h: 0.55, d: 1.1, color: '#b5523b', flow: 'reclaim' });
+for (let j = 0; j < 4; j++) box(world, { x: -1.2, y: 0.12 + j * 0.24, z: 8.2, w: 0.22, h: 0.22, d: 4.5, color: TIMBER, flow: 'reclaim' });
+for (let j = 0; j < 4; j++) box(world, { x: -0.8, y: 0.12 + j * 0.24, z: 8.2, w: 0.22, h: 0.22, d: 4.5, color: TIMBER, flow: 'reclaim' });
+for (let i = 0; i < 5; i++) box(world, { x: 8.5, y: 0.15, z: 9.5 + i * 1.1, w: 7, h: 0.3, d: 0.7, color: '#5d7f3a' });
+for (let i = 0; i < 4; i++) box(world, { x: -11.5, y: 0.15, z: 10 + i * 1.1, w: 5, h: 0.3, d: 0.7, color: '#5d7f3a' });
+[-15.6, -14.4, -13.2].forEach(x => box(world, { x, y: 0.5, z: 7, w: 1, h: 1, d: 1, color: '#6b4a2b' }));
+for (let i = 0; i < 14; i++) {
+  const a = rnd() * Math.PI * 2, r = 22 + rnd() * 10, x = Math.cos(a) * r, z = Math.sin(a) * r;
+  if (z > 0 && Math.abs(x) < 6) continue;
+  add(world, 'a-cylinder', { position: `${x} 1 ${z}`, radius: 0.25, height: 2, color: '#6b4f32' });
+  add(world, 'a-cone', { position: `${x} 3.6 ${z}`, 'radius-bottom': 1.8, 'radius-top': 0, height: 4.5, color: '#4f7a3a' });
+}
+
+/* ---------- loops you can watch ---------- */
+add(world, 'a-entity', { 'flow-path': 'points: -6 6.4 1.5, 4 5.3 4.4, 12.9 5.1 4.45, 12.9 1 4.45, 14.5 3.2 6.5, 12 1.2 9, 8.5 0.5 11; color: #4fb3e8; count: 14; speed: 3; size: 0.14' });
+add(world, 'a-entity', { 'flow-path': 'points: -8 1 4.6, -11 1.2 6, -14.4 1.3 7, -13 0.8 9, -11.5 0.5 11.5; color: #7bc96f; count: 8; speed: 1.6; size: 0.14' });
+add(world, 'a-entity', { 'flow-path': 'points: -4 6.6 2.4, -2 7.5 6, -2.5 2 8.5, 0 6.8 4, 3 6.4 2.4; color: #e3a62f; count: 8; speed: 1.8; size: 0.12' });
+
+/* ---------- the village and city-scale nodes ---------- */
+const STUCCO = ['#d9c7a6', '#e6d3b3', '#c99a6b', '#d8b892'];
+const NODES = [
+  { name: 'Regional materials bank', x: -48, z: -16, c: '#e3a62f', sub: 'Tiles, timber and brick in and out' },
+  { name: 'Village solar microgrid', x: 44, z: -24, c: '#ff7a59', sub: 'Spare roof power is shared' },
+  { name: 'Shared water reuse', x: 40, z: 26, c: '#4fb3e8', sub: 'Grey water treated and returned' },
+  { name: 'Community compost + farms', x: -40, z: 28, c: '#7bc96f', sub: 'Food waste back to soil' },
+  { name: 'Rail and bike link', x: 0, z: -58, c: '#f3efe4', sub: 'Fewer car trips' }
+];
+for (let i = 0; i < 46; i++) {
+  const a = rnd() * Math.PI * 2, r = 30 + rnd() * 55, x = Math.cos(a) * r, z = Math.sin(a) * r;
+  if (NODES.some(n => Math.hypot(n.x - x, n.z - z) < 14) || (z > 0 && z < 50 && Math.abs(x) < 28)) continue;
+  const w = 5 + rnd() * 5, h = 3.5 + rnd() * 4, d = 5 + rnd() * 4;
+  box(world, { x, y: h / 2, z, w, h, d, color: STUCCO[i % 4], rot: `0 ${Math.round(rnd() * 90)} 0` });
+  add(world, 'a-cone', { position: `${x} ${h + 1} ${z}`, 'radius-bottom': Math.max(w, d) * 0.72, 'radius-top': 0, height: 2, 'segments-radial': 4, rotation: '0 45 0', color: '#a9472f' });
+}
+box(world, { x: -48, y: 3.5, z: -16, w: 18, h: 7, d: 11, color: '#9aa0a6' });
+for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) box(world, { x: 38 + i * 4.2, y: 1, z: -29 + j * 5, w: 3.8, h: 0.1, d: 3, rot: '-25 0 0', color: '#1f2d4a' });
+[[37, 22], [43, 22], [40, 30]].forEach(p => add(world, 'a-cylinder', { position: `${p[0]} 2 ${p[1]}`, radius: 2.4, height: 4, color: '#c3ccd1' }));
+add(world, 'a-plane', { rotation: '-90 0 0', position: '46 0.05 30', width: 10, height: 7, color: '#4f8fb5' });
+for (let i = 0; i < 5; i++) add(world, 'a-plane', { rotation: '-90 0 0', position: `${-46 + i * 3} 0.05 28`, width: 2.4, height: 14, color: i % 2 ? '#5d7f3a' : '#73944a' });
+box(world, { x: 0, y: 2.5, z: -58, w: 30, h: 5, d: 8, color: '#b9a99a' });
+box(world, { x: 0, y: 0.1, z: -64, w: 200, h: 0.2, d: 2.4, color: '#5a524a' });
+const cityflows = document.getElementById('cityflows');
+NODES.forEach(n => {
+  const mx = n.x / 2, mz = n.z / 2;
+  add(cityflows, 'a-entity', { 'flow-path': `points: 0 7 0, ${mx} 18 ${mz}, ${n.x} 6 ${n.z}; color: ${n.c}; count: 10; speed: 9; size: 0.55` });
+  add(cityflows, 'a-entity', { position: `${n.x} 20 ${n.z}`, rotation: '-25 0 0', 'label-panel': `w: 22; h: 6.4; scale: 18; eyebrow: ${n.sub}; title: ${n.name}; accent: ${n.c}` });
+});
+
+/* ---------- numbered markers ---------- */
+const MARKERS = [
+  { n: 1, label: 'Keep', p: '-6 3.2 5.2' }, { n: 2, label: 'Reclaim', p: '-3 2.6 8' }, { n: 3, label: 'Unbuild', p: '6 3.2 5.2' },
+  { n: 4, label: 'Loop', p: '14.5 4.4 6.5' }, { n: 5, label: 'City', p: '0 9.2 0' }
+];
+const markerEls = [];
+MARKERS.forEach(m => {
+  const g = add(world, 'a-entity', { position: m.p });
+  add(g, 'a-sphere', { class: 'clickable', 'data-action': 'stop:' + m.n, radius: 0.32, color: '#e3a62f', shader: 'flat',
+    animation: 'property: scale; to: 1.18 1.18 1.18; dir: alternate; loop: true; dur: 900; easing: easeInOutSine' });
+  add(g, 'a-entity', { class: 'clickable', 'data-action': 'stop:' + m.n, position: '0 0.75 0', 'label-panel': `w: 1.5; h: 0.42; scale: 2.4; center: true; title: ${m.n} ${m.label}` });
+  markerEls.push(g);
+});
+
+/* ---------- tour content ---------- */
+const STOPS = [
+  { pos: '0 0 24', yaw: 0, eyebrow: 'House of No Waste · VR walkthrough', title: 'A barn that keeps its loops closed',
+    body: 'An illustrative model of an old farm stable turned into two family homes, like the Rural Housing II site near Pavia. Walk it at full size, then zoom out to see how one building plugs into a circular city. Visit the five numbered stops in order.',
+    ask: 'Keep your own design in mind. In 2–3 weeks you will walk through it the same way.' },
+  { pos: '0 0 15', yaw: 0, eyebrow: 'Stop 1 · Keep', title: 'The brick shell stays',
+    body: 'The long walls, the arcade of openings and the gable ends are already built. Keeping them avoids the carbon and waste of new walls. At full size you feel what a plan hides: wall thickness, the depth of each opening, how much light gets in.',
+    ask: 'Which walls, floors and beams in your design stay exactly as they are?' },
+  { pos: '-2 0 13', yaw: 0, flow: true, eyebrow: 'Stop 2 · Reclaim', title: 'The site is its own materials bank',
+    body: 'Roof tiles and timber trusses come down, get sorted on this pile, and go back up. Flow colors are on: amber marks every reclaimed part, green what stays, blue what is new. Follow the amber dots from roof to pile and back.',
+    ask: 'Can you trace each reclaimed material from where it was to where it ends up?' },
+  { pos: '5 0 16', yaw: 0, explode: true, eyebrow: 'Stop 3 · Unbuild', title: 'New parts are made to come apart',
+    body: 'The glazing, wall linings, party wall and solar panels are bolted and clipped, not glued. Explode pulls them off the old shell. In VR you can check every joint at full size before anyone builds it.',
+    ask: 'If someone takes your building apart in 40 years, what comes off cleanly?' },
+  { pos: '11 0 18', yaw: -12, eyebrow: 'Stop 4 · Loop', title: 'Water, energy and food go round',
+    body: 'Blue dots: rain runs off the roof into the tank and waters the garden. Green dots: kitchen scraps go to compost and back to the soil. The roof panels cover daytime power. A loop you can watch move is easier to judge than an arrow on a panel.',
+    ask: 'Which loop in your design is still open, and where does its waste go?' },
+  { pos: '0 38 66', yaw: 0, city: true, eyebrow: 'Stop 5 · City', title: 'One building, one node in a circular city',
+    body: 'From up here the barn is one point in a network. Tiles move to and from a regional materials bank, spare solar feeds a village microgrid, grey water goes to shared reuse, compost goes to community farms, and a rail link cuts car trips. Integrated circular city development designs these links on purpose.',
+    ask: 'What does your building take from its neighbours, and what does it give back?' }
+];
+const HASH = ['start', 'keep', 'reclaim', 'unbuild', 'loop', 'city'];
+let current = 0;
+
+function setFlow(on) {
+  STATE.flow = on;
+  document.querySelectorAll('[data-flow]').forEach(el => el.setAttribute('color', on ? FLOW[el.dataset.flow] : el.dataset.base));
+  document.getElementById('bflow').setAttribute('aria-pressed', on);
+  document.getElementById('c-legend').hidden = !on;
+  buildMenu();
+}
+function setExplode(on) { STATE.exploded = on; document.getElementById('bexp').setAttribute('aria-pressed', on); buildMenu(); }
+
+function goStop(i) {
+  const s = STOPS[i]; current = i;
+  rig.setAttribute('position', s.pos);
+  rig.setAttribute('rotation', `0 ${s.yaw} 0`);
+  const lc = cam.components['look-controls'];
+  if (!scene.is('vr-mode')) {
+    cam.object3D.position.set(0, 1.6, 0);
+    if (lc) { lc.yawObject.rotation.y = 0; lc.pitchObject.rotation.x = s.city ? -0.5 : 0; }
+  }
+  if (s.flow) setFlow(true);
+  setExplode(!!s.explode);
+  document.getElementById('cityflows').setAttribute('visible', !!s.city);
+  markerEls.forEach(m => m.setAttribute('visible', !s.city));
+  document.getElementById('c-eyebrow').textContent = s.eyebrow;
+  document.getElementById('c-title').textContent = s.title;
+  document.getElementById('c-body').textContent = s.body;
+  document.getElementById('c-ask').innerHTML = '<b>Ask about your project:</b> ';
+  document.getElementById('c-ask').append(s.ask);
+  document.querySelectorAll('[data-stop]').forEach(b => b.setAttribute('aria-pressed', +b.dataset.stop === i));
+  document.getElementById('vrpanel').setAttribute('label-panel', { eyebrow: s.eyebrow, title: s.title, body: s.body, ask: s.ask });
+  buildMenu();
+  try { history.replaceState(null, '', '#' + HASH[i]); } catch (e) {}
+}
+
+/* in-headset menu: two rows of buttons attached to the rig */
+function buildMenu() {
+  const menu = document.getElementById('vrmenu');
+  if (!menu) return;
+  while (menu.firstChild) menu.removeChild(menu.firstChild);
+  const items = [['Start', 'stop:0'], ['1 Keep', 'stop:1'], ['2 Reclaim', 'stop:2'], ['3 Unbuild', 'stop:3'],
+    ['4 Loop', 'stop:4'], ['5 City', 'stop:5'], ['Flow colors', 'flow'], ['Explode', 'explode']];
+  items.forEach((it, k) => {
+    const on = it[1] === 'stop:' + current || (it[1] === 'flow' && STATE.flow) || (it[1] === 'explode' && STATE.exploded);
+    const x = -0.36 + (k % 4) * 0.24, y = k < 4 ? 0.08 : -0.06;
+    add(menu, 'a-entity', { class: 'clickable', 'data-action': it[1], position: `${x} ${y} 0`,
+      'label-panel': `w: 0.22; h: 0.11; scale: 0.38; center: true; title: ${it[0]}; bg: ${on ? '#e3a62f' : '#14231c'}; fg: ${on ? '#1b1a12' : '#f3efe4'}` });
+  });
+}
+
+function act(a) {
+  if (!a) return;
+  if (a.startsWith('stop:')) goStop(+a.slice(5));
+  else if (a === 'flow') setFlow(!STATE.flow);
+  else if (a === 'explode') setExplode(!STATE.exploded);
+}
+scene.addEventListener('click', e => { const t = e.target && e.target.closest ? e.target.closest('[data-action]') : null; if (t) act(t.dataset.action); });
+document.querySelectorAll('[data-stop]').forEach(b => b.addEventListener('click', () => goStop(+b.dataset.stop)));
+document.getElementById('bflow').addEventListener('click', () => setFlow(!STATE.flow));
+document.getElementById('bexp').addEventListener('click', () => setExplode(!STATE.exploded));
+scene.addEventListener('enter-vr', () => document.getElementById('vrui').setAttribute('visible', true));
+scene.addEventListener('exit-vr', () => document.getElementById('vrui').setAttribute('visible', false));
+
+function fromHash() { const i = HASH.indexOf(location.hash.slice(1)); goStop(i < 0 ? 0 : i); }
+window.addEventListener('hashchange', fromHash);
+if (scene.hasLoaded) fromHash(); else scene.addEventListener('loaded', fromHash);
+</script>
+</body>
+</html>
