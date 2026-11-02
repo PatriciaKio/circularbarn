@@ -1,6 +1,10 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="House of No Waste: a WebXR walkthrough of a barn converted to two homes, showing Keep, Reclaim, Unbuild, Loop and City-scale circular design.">
 <title>Circular Barn VR</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Public+Sans:wght@400;600&display=swap">
 <script src="https://cdn.jsdelivr.net/npm/aframe@1.6.0/dist/aframe-v1.6.0.min.js"></script>
@@ -19,7 +23,8 @@
   --display: "Bricolage Grotesque", "Trebuchet MS", sans-serif;
   --body: "Public Sans", Arial, sans-serif;
 }
-html, body { height: 100%; }
+html, body { height: 100%; margin: 0; }
+[hidden] { display: none !important; }
 body { background: #14231c; color: var(--ink); font-family: var(--body); overflow: hidden; }
 a-scene { position: fixed; inset: 0; }
 .hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; font-size: 15px; line-height: 1.5; }
@@ -139,6 +144,8 @@ AFRAME.registerComponent('explode', {
 });
 </script>
 
+</head>
+<body>
 <a-scene renderer="antialias: true; colorManagement: true" cursor="rayOrigin: mouse" raycaster="objects: .clickable; far: 120"
   fog="type: linear; color: #cfe3e6; near: 80; far: 260" loading-screen="dotsColor: #e3a62f; backgroundColor: #14231c"
   device-orientation-permission-ui="enabled: false">
@@ -249,7 +256,7 @@ box(world, { x: 0, y: 6.09, z: -2.19, w: 25, h: 0.2, d: 4.95, rot: `${-TH} 0 0`,
 box(world, { x: 0, y: 2.4, z: -3.6, w: 22.8, h: 4.6, d: 0.14, color: '#e8e0cc', flow: 'new', explode: '0 0 2.4' });
 box(world, { x: -11.35, y: 2.4, z: 0, w: 0.14, h: 4.6, d: 7, color: '#e8e0cc', flow: 'new', explode: '2.4 0 0' });
 box(world, { x: 11.35, y: 2.4, z: 0, w: 0.14, h: 4.6, d: 7, color: '#e8e0cc', flow: 'new', explode: '-2.4 0 0' });
-box(world, { x: 0, y: 2.5, z: 0, w: 0.3, h: 5, d: 7.2, color: '#c9a97a', flow: 'new', explode: '0 0 9' });
+box(world, { x: 0, y: 2.5, z: 0, w: 0.3, h: 5, d: 7.2, color: '#c9a97a', flow: 'new', explode: '0 8 0' });
 // gutter, downpipe, tank
 box(world, { x: 0.6, y: 5.0, z: 4.45, w: 25, h: 0.18, d: 0.25, color: '#5c6670', flow: 'new' });
 add(world, 'a-cylinder', { position: '12.9 2.5 4.45', radius: 0.09, height: 5, color: '#5c6670', flow: 'new' });
@@ -285,7 +292,7 @@ const NODES = [
 ];
 for (let i = 0; i < 46; i++) {
   const a = rnd() * Math.PI * 2, r = 30 + rnd() * 55, x = Math.cos(a) * r, z = Math.sin(a) * r;
-  if (NODES.some(n => Math.hypot(n.x - x, n.z - z) < 14) || (Math.abs(x) < 6 && z > 0)) continue;
+  if (NODES.some(n => Math.hypot(n.x - x, n.z - z) < 14) || (z > 0 && z < 50 && Math.abs(x) < 28)) continue;
   const w = 5 + rnd() * 5, h = 3.5 + rnd() * 4, d = 5 + rnd() * 4;
   box(world, { x, y: h / 2, z, w, h, d, color: STUCCO[i % 4], rot: `0 ${Math.round(rnd() * 90)} 0` });
   add(world, 'a-cone', { position: `${x} ${h + 1} ${z}`, 'radius-bottom': Math.max(w, d) * 0.72, 'radius-top': 0, height: 2, 'segments-radial': 4, rotation: '0 45 0', color: '#a9472f' });
@@ -301,7 +308,7 @@ const cityflows = document.getElementById('cityflows');
 NODES.forEach(n => {
   const mx = n.x / 2, mz = n.z / 2;
   add(cityflows, 'a-entity', { 'flow-path': `points: 0 7 0, ${mx} 18 ${mz}, ${n.x} 6 ${n.z}; color: ${n.c}; count: 10; speed: 9; size: 0.55` });
-  add(cityflows, 'a-entity', { position: `${n.x} 16 ${n.z}`, rotation: '-25 0 0', 'label-panel': `w: 11; h: 3.4; scale: 9; eyebrow: ${n.sub}; title: ${n.name}; accent: ${n.c}` });
+  add(cityflows, 'a-entity', { position: `${n.x} 20 ${n.z}`, rotation: '-25 0 0', 'label-panel': `w: 22; h: 6.4; scale: 18; eyebrow: ${n.sub}; title: ${n.name}; accent: ${n.c}` });
 });
 
 /* ---------- numbered markers ---------- */
@@ -407,5 +414,5 @@ function fromHash() { const i = HASH.indexOf(location.hash.slice(1)); goStop(i <
 window.addEventListener('hashchange', fromHash);
 if (scene.hasLoaded) fromHash(); else scene.addEventListener('loaded', fromHash);
 </script>
-
-</body></html>
+</body>
+</html>
